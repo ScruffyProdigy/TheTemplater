@@ -1,7 +1,21 @@
+/*
+
+A simple bulk template loader
+
+It is not uncommon for a web project to have a folder filled with templates to help simplify the "view" section of a MVC project.
+Often times these templates are separated into folders based on which controller needs to call them.
+And often times these templates need to access one another in order to DRY up the template and create partial views.
+
+TheTemplater makes it as simple as possible to load all of these views in as few commands as possible.
+Specifically, one command to load the root folder of the templates.
+And one command each time you wish to render one of the templates.
+
+*/
 package templater
 
 import (
 	"html/template"
+	"io"
 	"io/ioutil"
 	"log"
 	"os"
@@ -9,54 +23,77 @@ import (
 	"strings"
 )
 
-var t *template.Template
-
-/*
-	This error gets returned if you request access to a template that doesn't exist
-*/
-type TemplateNotFoundError struct {
-	tmpl string
+//eventually, I would like to allow different extension types to refer to different types of templates (ie, something like HAML)
+//To my knowledge, something like that doesn't yet exist, so for now, only basic templates
+var translators map[string]func(string)(string,error) = map[string]func(string)(string,error){
+	"tmpl":func(s string)(string,error) {
+		return s,nil
+	},
 }
 
-func (this TemplateNotFoundError) Error() string {
-	return "Unable to find template \"" + this.tmpl + "\""
+type Group struct {
+	t *template.Template
+	l *log.Logger
 }
 
 /*
-	Get() will get a specified template from the previously loaded templates
+	New() will search a directory, and recursively search all subdirectories for template files.
+	It then stores all template files into one location to make for easy lookup.
+	It also associates all of the templates found, so any template loaded can reference any other loaded templated
+	Currently, it looks for all files with a .tmpl extension, and then strips the extension
 */
-func Get(name string) (result *template.Template, err error) {
-	result = t.Lookup(name)
-	if result == nil {
-		err = TemplateNotFoundError{name}
+func New(directory string) *Group {
+	return NewAndLogErrors(directory,nil)
+}
+
+/*
+	NewAndLogErrors() does the same thing as New, except it takes a logger, and will log any errors it encounters for debugging later
+*/
+func NewAndLogErrors(directory string,logger *log.Logger) *Group {
+	this := new(Group)
+	
+	this.l = logger
+	
+	this.t = template.New("")
+	this.t.Parse("")
+	
+	this.loadFolder(directory)
+	
+	return this
+}
+
+func (this *Group) create(name, text string) {
+	a := this.t.New(name)
+	_,err := a.Parse(text)
+	if err != nil && this.l != nil {
+		this.l.Println("**Warning** "+err.Error())
 	}
-	return
 }
 
-/*
-	Available() will let you know whether or not a specified template exists
-*/
-func Available(name string) bool {
-	result := t.Lookup(name)
-	if result == nil {
-		return false
+func getTranslator(info os.FileInfo) func(string)(string,error) {
+	extension := strings.TrimLeft(filepath.Ext(info.Name()), ".")
+	return translators[extension]
+}
+
+func getFileName(base,path string) string {
+	filename,err := filepath.Rel(base, path)
+	if err != nil {
+		return ""
 	}
-	return true
+	return filename
 }
 
-/*
-	Create will add a template with the specified text under the specified name for later use with Get() or Available()
-*/
-func Create(name, text string) {
-	a := t.New(name)
-	a.Parse(text)
+func stripExtension(file string) string {
+	//we used the extension to determine the template type, now we strip the extension from the file name
+	index := strings.LastIndex(file, ".")
+	if index == -1 {
+		//no "." in the filename (therefore, not a .tmpl file), skip
+		return ""
+	}
+	return file[0:index]
 }
 
-/*
-	LoadFromFiles() loads all of the templates within a specified file directory
-	It dig into subdirectories recursively
-*/
-func LoadFromFiles(dir string, logger *log.Logger) {
+func (this *Group) loadFolder(dir string) {
 	base := filepath.Clean(dir)
 
 	filepath.Walk(base, func(path string, info os.FileInfo, err error) error {
@@ -67,51 +104,61 @@ func LoadFromFiles(dir string, logger *log.Logger) {
 		if info.IsDir() {
 			return nil
 		}
-
-		ext := strings.TrimLeft(filepath.Ext(info.Name()), ".")
-		if ext != "tmpl" {
-			//eventually, I would like to allow different extension types to refer to different types of templates, but for now, we just skip them
-			if logger != nil {
-				logger.Print("Warning - Unknown Template Type: ." + ext + " - Skipping")
-			}
+		
+		translator := getTranslator(info)
+		if translator == nil {
 			return nil
 		}
 
-		file, err := filepath.Rel(base, path)
-		if err != nil {
-			if logger != nil {
-				logger.Print("Unable to find file at " + path + " - Skipping")
-			}
+		fileName := getFileName(base,path)
+		if fileName == "" {
 			return nil
 		}
 
-		index := strings.Index(file, ".")
-		if index == -1 {
-			if logger != nil {
-				logger.Print("Warning - No file type in " + file + " - Skipping")
-			}
+//we used the extension to determine which template type we were using, 
+//we strip it for the template name
+		templateName := stripExtension(fileName)
+		if templateName == "" {
 			return nil
 		}
-		name := file[0:index]
 
 		b, err := ioutil.ReadFile(path)
 		if err != nil {
-			if logger != nil {
-				logger.Print("Error - Could not load template file:" + path + " - Skipping")
-			}
+			//couldn't load the file, skip
 			return nil
 		}
-		s := string(b)
+		
+		s,err := translator(string(b))
+		if err != nil {
+			return nil
+		}
 
-		//once I have other types of templates, I would need to look up a translator in a extension-translator map right here, and translate s into a "*/template" friendly format
-
-		Create(name, s)
+		this.create(templateName, s)
 
 		return nil
 	})
 }
 
-func init() {
-	t = template.New("")
-	t.Parse("")
+
+/*
+	Get() will get a specified template from the previously loaded templates
+*/
+func (this *Group) Get(name string) *template.Template {
+	return this.t.Lookup(name)
+}
+
+/*
+	Render() will get the named template from the previously loaded templates
+	it will then execute it using data for the pipeline, and outputting to a writer
+*/
+func (this *Group) Render(name string, out io.Writer, data interface{}) {
+	t := this.Get(name)
+	if t == nil {
+		this.l.Println("**Warning** could not find template:"+name)
+		return
+	}
+	err := t.Execute(out,data)
+	if err != nil {
+		this.l.Println("**Warning** "+err.Error())
+	}
 }

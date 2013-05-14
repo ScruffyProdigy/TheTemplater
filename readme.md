@@ -1,8 +1,23 @@
-# Template
+# TheTemplater
 
 A simple bulk template loader
 
-run `go get github.com/HairyMezican/TheTemplater/templater` to install it
+It is not uncommon for a web project to have a folder filled with templates to help simplify the "view" section of a MVC project.
+Often times these templates are separated into folders based on which controller needs to call them.
+And often times these templates need to access one another in order to DRY up the template and create partial views.
+
+TheTemplater makes it as simple as possible to load all of these views in as few commands as possible.
+Specifically, one command to load the root folder of the templates.
+And one command each time you wish to render one of the templates.
+
+## Usage
+
+1) Create a folder for your templates
+2) Put a bunch of templates in the folder
+3) Feel free to organize your templates with subfolders
+4) Import this Library
+5) Call `t := templater.New()` and pass it the name of the folder with the templates
+6) Later, render a template by calling t.Render()
 
 ## Example
 
@@ -11,7 +26,7 @@ run `go get github.com/HairyMezican/TheTemplater/templater` to install it
 	package main
 
 	import (
-		"github.com/HairyMezican/TheTemplater/templater"
+		"github.com/ScruffyProdigy/TheTemplater/templater"
 		"os"
 	)
 
@@ -19,15 +34,21 @@ run `go get github.com/HairyMezican/TheTemplater/templater` to install it
 		out := os.Stdout
 		vars := map[string]string{"Name": "World"}
 
-		templater.LoadFromFiles("templates", nil)
-		t, _ := templater.Get("hello")
-		t.Execute(out, vars)
+		layouts := templater.New("layouts")
+		layouts.Render("hello",out,vars)
 	}
   
   
-**templates/hello.tmpl:**
+**layouts/hello.tmpl:**
 	
-	Hello {{.Name}}
+	Hello {{template "world" .}}
 	
+**layouts/world.tmpl
+
+	{{.Name}}
 
 When run, this program should output "Hello World"
+
+## Documentation
+
+http://godoc.org/github.com/ScruffyProdigy/TheTemplater/templater
