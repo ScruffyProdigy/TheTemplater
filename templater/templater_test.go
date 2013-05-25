@@ -31,8 +31,8 @@ func Example_Errors() {
 	fmt.Fprintln(out, len(errs), "errors")
 
 	/*output:
-	Error - No translator found for err file
-	Error - template: b:1: unexpected unclosed action in command
-	2 errors
+Error - No translator found for err file
+Error - template: b:1: unexpected unclosed action in command
+2 errors
 	*/
 }
