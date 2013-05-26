@@ -89,9 +89,10 @@ func (this *Group) loadFolder(dir string) []error {
 	base := filepath.Clean(dir)
 	errs := []error{}
 
-	err := filepath.Walk(base, func(path string, info os.FileInfo, err error) error {
+	filepath.Walk(base, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			errs = append(errs, err)
+			return err
 		}
 
 		if info.IsDir() {
@@ -138,9 +139,6 @@ func (this *Group) loadFolder(dir string) []error {
 
 		return nil
 	})
-	if err != nil {
-		errs = append(errs, err)
-	}
 	return errs
 }
 
